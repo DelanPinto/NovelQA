@@ -1,23 +1,31 @@
-import chromadb
+import sys
+from pathlib import Path
 
 from google import genai
+
+
+# --------------------------------------------------
+# Allow imports from the app directory
+# --------------------------------------------------
+
+APP_DIR = Path(__file__).resolve().parent
+
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+
+
+from retrieval import (
+    get_collection,
+    create_query_embedding,
+    retrieve_results
+)
 
 
 # --------------------------------------------------
 # Configuration
 # --------------------------------------------------
 
-CHROMA_PATH = "chroma_db"
-
-COLLECTION_NAME = "great_gatsby"
-
-EMBEDDING_MODEL = "gemini-embedding-001"
-
 GENERATION_MODEL = "gemini-3.6-flash"
-
-TOP_K = 3
-
-MAX_DISTANCE = 0.65
 
 
 # --------------------------------------------------
@@ -28,102 +36,13 @@ client = genai.Client()
 
 
 # --------------------------------------------------
-# Connect to ChromaDB
-# --------------------------------------------------
-
-def get_collection():
-    """
-    Connect to the existing ChromaDB collection.
-    """
-
-    chroma_client = chromadb.PersistentClient(
-        path=CHROMA_PATH
-    )
-
-    collection = chroma_client.get_collection(
-        name=COLLECTION_NAME
-    )
-
-    return collection
-
-
-# --------------------------------------------------
-# Create query embedding
-# --------------------------------------------------
-
-def create_query_embedding(question):
-    """
-    Convert the user's question into an embedding.
-    """
-
-    response = client.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=question
-    )
-
-    return response.embeddings[0].values
-
-
-# --------------------------------------------------
-# Retrieve chunks
-# --------------------------------------------------
-
-def retrieve_chunks(
-    collection,
-    query_embedding,
-    top_k=TOP_K
-):
-    """
-    Retrieve the closest chunks from ChromaDB.
-    """
-
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k
-    )
-
-    documents = results["documents"][0]
-
-    metadatas = results["metadatas"][0]
-
-    distances = results["distances"][0]
-
-    ids = results["ids"][0]
-
-    retrieved_chunks = []
-
-    for document, metadata, distance, chunk_id in zip(
-        documents,
-        metadatas,
-        distances,
-        ids
-    ):
-
-        # Ignore results that are too far
-        # from the query.
-        if distance > MAX_DISTANCE:
-            continue
-
-        retrieved_chunks.append(
-            {
-                "id": chunk_id,
-                "text": document,
-                "chapter": metadata["chapter"],
-                "distance": distance
-            }
-        )
-
-    return retrieved_chunks
-
-
-# --------------------------------------------------
 # Build context
 # --------------------------------------------------
 
 def build_context(retrieved_chunks):
     """
-    Combine retrieved chunks into context
-    for Gemini.
+    Combine retrieved chunks into a context string
+    that can be provided to the generation model.
     """
 
     context_parts = []
@@ -153,7 +72,8 @@ def generate_answer(
     context
 ):
     """
-    Generate a grounded answer using Gemini.
+    Generate an answer using only the retrieved
+    context from the novel.
     """
 
     prompt = f"""
@@ -208,6 +128,32 @@ ANSWER
 
 
 # --------------------------------------------------
+# Display sources
+# --------------------------------------------------
+
+def display_sources(retrieved_chunks):
+    """
+    Display the sources used to generate the answer.
+    """
+
+    print("\n" + "=" * 60)
+    print("RETRIEVED SOURCES")
+    print("=" * 60)
+
+    for i, chunk in enumerate(
+        retrieved_chunks,
+        start=1
+    ):
+
+        print(
+            f"\nSource {i}: "
+            f"Chapter {chunk['chapter']} "
+            f"(distance: "
+            f"{chunk['distance']:.4f})"
+        )
+
+
+# --------------------------------------------------
 # Main
 # --------------------------------------------------
 
@@ -229,8 +175,15 @@ def main():
 
         return
 
-    # Connect to ChromaDB
+    # --------------------------------------------------
+    # Connect to vector database
+    # --------------------------------------------------
+
     collection = get_collection()
+
+    # --------------------------------------------------
+    # Create question embedding
+    # --------------------------------------------------
 
     print(
         "\nCreating question embedding..."
@@ -242,17 +195,21 @@ def main():
         )
     )
 
+    # --------------------------------------------------
+    # Retrieve relevant chunks
+    # --------------------------------------------------
+
     print(
         "Retrieving relevant passages..."
     )
 
-    retrieved_chunks = retrieve_chunks(
+    retrieved_chunks = retrieve_results(
         collection,
         query_embedding
     )
 
     # --------------------------------------------------
-    # No relevant context
+    # Handle no relevant results
     # --------------------------------------------------
 
     if not retrieved_chunks:
@@ -268,8 +225,8 @@ def main():
         )
 
         print(
-            f"\nNo retrieved chunk was within the "
-            f"maximum distance of {MAX_DISTANCE:.2f}."
+            "\nNo sufficiently similar passages "
+            "were found."
         )
 
         return
@@ -309,22 +266,14 @@ def main():
     # Display sources
     # --------------------------------------------------
 
-    print("\n" + "=" * 60)
-    print("RETRIEVED SOURCES")
-    print("=" * 60)
+    display_sources(
+        retrieved_chunks
+    )
 
-    for i, chunk in enumerate(
-        retrieved_chunks,
-        start=1
-    ):
 
-        print(
-            f"\nSource {i}: "
-            f"Chapter {chunk['chapter']} "
-            f"(distance: "
-            f"{chunk['distance']:.4f})"
-        )
-
+# --------------------------------------------------
+# Entry point
+# --------------------------------------------------
 
 if __name__ == "__main__":
     main()
