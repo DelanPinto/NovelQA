@@ -1,7 +1,5 @@
-from pathlib import Path
-
-import chromadb
 from google import genai
+import chromadb
 
 
 # --------------------------------------------------
@@ -16,6 +14,10 @@ EMBEDDING_MODEL = "gemini-embedding-001"
 
 TOP_K = 3
 
+# Initial experimental threshold.
+# Lower distance = greater similarity.
+MAX_DISTANCE = 0.65
+
 
 # --------------------------------------------------
 # Gemini client
@@ -29,6 +31,9 @@ client = genai.Client()
 # --------------------------------------------------
 
 def get_collection():
+    """
+    Connect to the existing ChromaDB collection.
+    """
 
     chroma_client = chromadb.PersistentClient(
         path=CHROMA_PATH
@@ -68,7 +73,7 @@ def search_collection(
     top_k=TOP_K
 ):
     """
-    Find the chunks most similar to the query.
+    Retrieve the closest chunks from ChromaDB.
     """
 
     results = collection.query(
@@ -80,21 +85,17 @@ def search_collection(
 
 
 # --------------------------------------------------
-# Display results
+# Filter results
 # --------------------------------------------------
 
-def display_results(
-    question,
-    results
+def filter_results(
+    results,
+    max_distance=MAX_DISTANCE
 ):
-
-    print("\n" + "=" * 60)
-    print("RETRIEVAL RESULTS")
-    print("=" * 60)
-
-    print(
-        f"\nQuestion:\n{question}"
-    )
+    """
+    Remove results whose distance is greater
+    than the configured threshold.
+    """
 
     documents = results["documents"][0]
 
@@ -104,32 +105,95 @@ def display_results(
 
     ids = results["ids"][0]
 
-    for i in range(len(documents)):
+    filtered = []
 
-        print("\n" + "-" * 60)
+    for document, metadata, distance, chunk_id in zip(
+        documents,
+        metadatas,
+        distances,
+        ids
+    ):
+
+        if distance <= max_distance:
+
+            filtered.append(
+                {
+                    "id": chunk_id,
+                    "text": document,
+                    "chapter": metadata["chapter"],
+                    "distance": distance
+                }
+            )
+
+    return filtered
+
+
+# --------------------------------------------------
+# Display results
+# --------------------------------------------------
+
+def display_results(
+    question,
+    results,
+    filtered_results
+):
+    """
+    Display original and filtered retrieval results.
+    """
+
+    print("\n" + "=" * 60)
+    print("RETRIEVAL RESULTS")
+    print("=" * 60)
+
+    print(
+        f"\nQuestion:\n{question}"
+    )
+
+    print(
+        f"\nConfigured maximum distance: "
+        f"{MAX_DISTANCE:.2f}"
+    )
+
+    print(
+        f"Original results: "
+        f"{len(results['ids'][0])}"
+    )
+
+    print(
+        f"Results after filtering: "
+        f"{len(filtered_results)}"
+    )
+
+    print("\n" + "-" * 60)
+    print("FILTERED RESULTS")
+    print("-" * 60)
+
+    for i, result in enumerate(
+        filtered_results,
+        start=1
+    ):
 
         print(
-            f"Result {i + 1}"
+            f"\nResult {i}"
         )
 
         print(
-            f"ID: {ids[i]}"
+            f"ID: {result['id']}"
         )
 
         print(
-            f"Chapter: "
-            f"{metadatas[i]['chapter']}"
+            f"Chapter: {result['chapter']}"
         )
 
         print(
             f"Distance: "
-            f"{distances[i]:.4f}"
+            f"{result['distance']:.4f}"
         )
 
         print("\nText:")
 
         print(
-            documents[i]
+            result["text"]
         )
 
 
@@ -155,7 +219,6 @@ def main():
 
         return
 
-    # Connect to ChromaDB
     collection = get_collection()
 
     print(
@@ -163,7 +226,6 @@ def main():
         f"{COLLECTION_NAME}"
     )
 
-    # Create embedding for question
     print(
         "Creating question embedding..."
     )
@@ -174,7 +236,6 @@ def main():
         )
     )
 
-    # Search
     print(
         "Searching for relevant chunks..."
     )
@@ -184,10 +245,14 @@ def main():
         query_embedding
     )
 
-    # Display
+    filtered_results = filter_results(
+        results
+    )
+
     display_results(
         question,
-        results
+        results,
+        filtered_results
     )
 
 
