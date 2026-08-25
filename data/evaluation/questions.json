@@ -1,0 +1,30 @@
+[
+    {
+        "question": "Why does Gatsby throw parties?",
+        "expected_chapters": [3, 5]
+    },
+    {
+        "question": "Who is Jay Gatsby?",
+        "expected_chapters": [6]
+    },
+    {
+        "question": "What is Gatsby's relationship with Daisy?",
+        "expected_chapters": [7, 8]
+    },
+    {
+        "question": "Why does Nick move to West Egg?",
+        "expected_chapters": [1]
+    },
+    {
+        "question": "What was Gatsby's favorite meal?",
+        "expected_chapters": []
+    },
+    {
+        "question": "Who is Daisy Buchanan?",
+        "expected_chapters": [1, 4, 5]
+    },
+    {
+        "question": "Tell me about Gatsby's past.",
+        "expected_chapters": [4, 6]
+    }
+]
