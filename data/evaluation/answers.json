@@ -1,0 +1,48 @@
+[
+    {
+        "question": "Why does Gatsby throw parties?",
+        "expected_answer": "Gatsby throws parties partly because he hopes Daisy might eventually attend one of them. His mansion is across the bay from Daisy's house, and he hopes to encounter her through his parties.",
+        "key_facts": [
+            "Gatsby hopes Daisy will attend one of his parties",
+            "Gatsby lives across the bay from Daisy"
+        ],
+        "supported": true
+    },
+    {
+        "question": "Who is Jay Gatsby?",
+        "expected_answer": "Jay Gatsby was originally James Gatz, the son of unsuccessful farm people. At seventeen he created the identity of Jay Gatsby and later became a wealthy man living in West Egg.",
+        "key_facts": [
+            "His original name was James Gatz",
+            "His parents were unsuccessful farm people",
+            "He created the identity of Jay Gatsby at seventeen",
+            "He lives in West Egg"
+        ],
+        "supported": true
+    },
+    {
+        "question": "What is Gatsby's relationship with Daisy?",
+        "expected_answer": "Gatsby and Daisy had a romantic relationship in the past, and Gatsby remains deeply devoted to her years later. Gatsby wants to reunite with Daisy and believes that she should return to him.",
+        "key_facts": [
+            "Gatsby and Daisy had a romantic relationship",
+            "Gatsby remains devoted to Daisy",
+            "Gatsby wants to reunite with Daisy"
+        ],
+        "supported": true
+    },
+    {
+        "question": "Why does Nick move to West Egg?",
+        "expected_answer": "Nick moves East to learn the bond business. He ends up living alone in a small house in West Egg after the man who originally planned to share the house with him is transferred to Washington.",
+        "key_facts": [
+            "Nick moves East to learn the bond business",
+            "Nick ends up living in West Egg",
+            "The person who planned to share the house was transferred to Washington"
+        ],
+        "supported": true
+    },
+    {
+        "question": "What was Gatsby's favorite meal?",
+        "expected_answer": "The novel does not provide enough information to determine Gatsby's favorite meal.",
+        "key_facts": [],
+        "supported": false
+    }
+]
