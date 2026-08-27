@@ -1,5 +1,14 @@
 from google import genai
 import chromadb
+from dotenv import load_dotenv
+import os
+
+
+# --------------------------------------------------
+# Load environment variables
+# --------------------------------------------------
+
+load_dotenv()
 
 
 # --------------------------------------------------
@@ -27,7 +36,17 @@ MAX_DISTANCE = 0.65
 # Gemini client
 # --------------------------------------------------
 
-client = genai.Client()
+API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not API_KEY:
+    raise ValueError(
+        "GEMINI_API_KEY was not found. "
+        "Make sure it exists in your .env file."
+    )
+
+client = genai.Client(
+    api_key=API_KEY
+)
 
 
 # --------------------------------------------------
@@ -327,10 +346,8 @@ def main():
         "Creating question embedding..."
     )
 
-    query_embedding = (
-        create_query_embedding(
-            question
-        )
+    query_embedding = create_query_embedding(
+        question
     )
 
     print(

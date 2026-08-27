@@ -1,8 +1,11 @@
+import time
 import json
 import sys
+import re
 from pathlib import Path
 
 from google import genai
+from google.genai import errors
 
 
 # --------------------------------------------------
@@ -41,7 +44,187 @@ from retrieval import (
 
 GENERATION_MODEL = "gemini-3.6-flash"
 
+# Free-tier generation limits can be restrictive.
+#
+# 15 seconds between generation requests gives
+# approximately 4 requests per minute.
+API_DELAY = 15
+
+# Maximum number of retries after a rate-limit error.
+MAX_RETRIES = 3
+
+# Default wait time if Gemini does not provide one.
+DEFAULT_RETRY_DELAY = 60
+
+
+# --------------------------------------------------
+# Gemini client
+# --------------------------------------------------
+
 client = genai.Client()
+
+
+# --------------------------------------------------
+# Track API request timing
+# --------------------------------------------------
+
+last_request_time = None
+
+
+def wait_for_rate_limit():
+    """
+    Ensure there is at least API_DELAY seconds
+    between generation API requests.
+    """
+
+    global last_request_time
+
+    if last_request_time is None:
+        return
+
+    elapsed = time.time() - last_request_time
+
+    remaining = API_DELAY - elapsed
+
+    if remaining > 0:
+
+        print(
+            f"\nWaiting {remaining:.1f} seconds "
+            f"to avoid rate limits..."
+        )
+
+        time.sleep(remaining)
+
+
+# --------------------------------------------------
+# Extract retry delay from Gemini error
+# --------------------------------------------------
+
+def get_retry_delay(error_message):
+    """
+    Try to extract Gemini's suggested retry delay.
+
+    Example:
+        Please retry in 53.34s.
+    """
+
+    match = re.search(
+        r"retry in ([\d.]+)s",
+        error_message,
+        re.IGNORECASE
+    )
+
+    if match:
+
+        retry_delay = float(
+            match.group(1)
+        )
+
+        # Add a small safety buffer.
+        return retry_delay + 2
+
+    return DEFAULT_RETRY_DELAY
+
+
+# --------------------------------------------------
+# Generate content safely
+# --------------------------------------------------
+
+def generate_content(prompt):
+    """
+    Generate Gemini content with:
+
+    1. Delay between requests
+    2. Automatic handling of 429 errors
+    3. Limited retries
+    """
+
+    global last_request_time
+
+    for attempt in range(
+        1,
+        MAX_RETRIES + 1
+    ):
+
+        # ----------------------------------------------
+        # Wait before making a request
+        # ----------------------------------------------
+
+        wait_for_rate_limit()
+
+        try:
+
+            response = (
+                client.models.generate_content(
+                    model=GENERATION_MODEL,
+                    contents=prompt
+                )
+            )
+
+            # Record the time of the request.
+            last_request_time = time.time()
+
+            # Safely handle empty responses.
+            if not response.text:
+
+                raise ValueError(
+                    "Gemini returned an empty response."
+                )
+
+            return response.text.strip()
+
+        except errors.ClientError as error:
+
+            # Record request timing even when it fails.
+            last_request_time = time.time()
+
+            error_message = str(error)
+
+            is_rate_limit = (
+                "429" in error_message
+                or "RESOURCE_EXHAUSTED"
+                in error_message
+            )
+
+            if not is_rate_limit:
+
+                raise
+
+            # ------------------------------------------
+            # Stop if retries are exhausted
+            # ------------------------------------------
+
+            if attempt >= MAX_RETRIES:
+
+                print(
+                    "\nMaximum retry attempts reached."
+                )
+
+                raise
+
+            # ------------------------------------------
+            # Wait and retry
+            # ------------------------------------------
+
+            retry_delay = get_retry_delay(
+                error_message
+            )
+
+            print(
+                "\nGemini API rate limit reached."
+            )
+
+            print(
+                f"Waiting {retry_delay:.1f} seconds "
+                f"before retry "
+                f"{attempt + 1}/{MAX_RETRIES}..."
+            )
+
+            time.sleep(retry_delay)
+
+            print(
+                "Retrying request..."
+            )
 
 
 # --------------------------------------------------
@@ -87,7 +270,9 @@ def build_context(retrieved_chunks):
 """
         )
 
-    return "\n".join(context_parts)
+    return "\n".join(
+        context_parts
+    )
 
 
 # --------------------------------------------------
@@ -136,12 +321,9 @@ ANSWER
 --------------------
 """
 
-    response = client.models.generate_content(
-        model=GENERATION_MODEL,
-        contents=prompt
+    return generate_content(
+        prompt
     )
-
-    return response.text.strip()
 
 
 # --------------------------------------------------
@@ -209,14 +391,15 @@ or
 FAIL
 """
 
-    response = client.models.generate_content(
-        model=GENERATION_MODEL,
-        contents=prompt
+    response_text = generate_content(
+        prompt
     )
 
-    result = response.text.strip().upper()
+    result = response_text.strip().upper()
 
-    return result.startswith("PASS")
+    return result.startswith(
+        "PASS"
+    )
 
 
 # --------------------------------------------------
@@ -259,14 +442,15 @@ or
 FAIL
 """
 
-    response = client.models.generate_content(
-        model=GENERATION_MODEL,
-        contents=prompt
+    response_text = generate_content(
+        prompt
     )
 
-    result = response.text.strip().upper()
+    result = response_text.strip().upper()
 
-    return result.startswith("PASS")
+    return result.startswith(
+        "PASS"
+    )
 
 
 # --------------------------------------------------
@@ -293,30 +477,42 @@ def evaluate_question(
     supported = question_data["supported"]
 
     print("\n" + "=" * 70)
+
     print("QUESTION:")
+
     print(question)
+
     print("=" * 70)
+
 
     # --------------------------------------------------
     # Create embedding
     # --------------------------------------------------
 
-    print("\nCreating question embedding...")
-
-    query_embedding = create_query_embedding(
-        question
+    print(
+        "\nCreating question embedding..."
     )
+
+    query_embedding = (
+        create_query_embedding(
+            question
+        )
+    )
+
 
     # --------------------------------------------------
     # Retrieve context
     # --------------------------------------------------
 
-    print("Retrieving relevant passages...")
+    print(
+        "Retrieving relevant passages..."
+    )
 
     retrieved_chunks = retrieve_results(
         collection,
         query_embedding
     )
+
 
     # --------------------------------------------------
     # Generate answer
@@ -328,12 +524,35 @@ def evaluate_question(
             retrieved_chunks
         )
 
-        print("Generating answer...")
-
-        generated_answer = generate_answer(
-            question,
-            context
+        print(
+            "Generating answer..."
         )
+
+        try:
+
+            generated_answer = (
+                generate_answer(
+                    question,
+                    context
+                )
+            )
+
+        except Exception as error:
+
+            print(
+                "\nAnswer generation failed:"
+            )
+
+            print(error)
+
+            return {
+                "question": question,
+                "supported": supported,
+                "retrieved": True,
+                "answer": "GENERATION FAILED",
+                "passed": False,
+                "error": True
+            }
 
     else:
 
@@ -347,40 +566,70 @@ def evaluate_question(
             "\nNo sufficiently similar passages found."
         )
 
+
     # --------------------------------------------------
     # Display generated answer
     # --------------------------------------------------
 
-    print("\nGenerated answer:")
-    print("-" * 70)
-    print(generated_answer)
+    print(
+        "\nGenerated answer:"
+    )
+
+    print(
+        "-" * 70
+    )
+
+    print(
+        generated_answer
+    )
+
 
     # --------------------------------------------------
-    # Evaluate
+    # Evaluate answer
     # --------------------------------------------------
 
-    print("\nEvaluating answer...")
+    print(
+        "\nEvaluating answer..."
+    )
 
-    if supported:
+    try:
 
-        passed = evaluate_supported_answer(
-            question,
-            generated_answer,
-            required_facts,
-            supporting_facts
+        if supported:
+
+            passed = (
+                evaluate_supported_answer(
+                    question,
+                    generated_answer,
+                    required_facts,
+                    supporting_facts
+                )
+            )
+
+        else:
+
+            passed = (
+                evaluate_unsupported_answer(
+                    question,
+                    generated_answer
+                )
+            )
+
+    except Exception as error:
+
+        print(
+            "\nAnswer evaluation failed:"
         )
 
-    else:
+        print(error)
 
-        passed = evaluate_unsupported_answer(
-            question,
-            generated_answer
-        )
+        passed = False
+
 
     print(
         f"Answer evaluation: "
         f"{'PASS' if passed else 'FAIL'}"
     )
+
 
     # --------------------------------------------------
     # Display retrieved sources
@@ -388,7 +637,9 @@ def evaluate_question(
 
     if retrieved_chunks:
 
-        print("\nRetrieved sources:")
+        print(
+            "\nRetrieved sources:"
+        )
 
         for index, chunk in enumerate(
             retrieved_chunks,
@@ -402,12 +653,16 @@ def evaluate_question(
                 f"{chunk['distance']:.4f})"
             )
 
+
     return {
         "question": question,
         "supported": supported,
-        "retrieved": bool(retrieved_chunks),
+        "retrieved": bool(
+            retrieved_chunks
+        ),
         "answer": generated_answer,
-        "passed": passed
+        "passed": passed,
+        "error": False
     }
 
 
@@ -426,6 +681,11 @@ def print_summary(results):
 
     failed = total - passed
 
+
+    # --------------------------------------------------
+    # Separate supported and unsupported
+    # --------------------------------------------------
+
     supported_results = [
         result
         for result in results
@@ -438,6 +698,11 @@ def print_summary(results):
         if not result["supported"]
     ]
 
+
+    # --------------------------------------------------
+    # Count successful evaluations
+    # --------------------------------------------------
+
     supported_passed = sum(
         result["passed"]
         for result in supported_results
@@ -448,6 +713,7 @@ def print_summary(results):
         for result in unsupported_results
     )
 
+
     # --------------------------------------------------
     # Overall accuracy
     # --------------------------------------------------
@@ -457,6 +723,7 @@ def print_summary(results):
         if total
         else 0.0
     )
+
 
     # --------------------------------------------------
     # Supported-answer accuracy
@@ -469,6 +736,7 @@ def print_summary(results):
         else 0.0
     )
 
+
     # --------------------------------------------------
     # Unsupported rejection accuracy
     # --------------------------------------------------
@@ -480,13 +748,22 @@ def print_summary(results):
         else 0.0
     )
 
+
     # --------------------------------------------------
     # Print summary
     # --------------------------------------------------
 
-    print("\n\n" + "=" * 70)
-    print("ANSWER EVALUATION SUMMARY")
-    print("=" * 70)
+    print(
+        "\n\n" + "=" * 70
+    )
+
+    print(
+        "ANSWER EVALUATION SUMMARY"
+    )
+
+    print(
+        "=" * 70
+    )
 
     print(
         f"\nTotal questions: {total}"
@@ -525,7 +802,9 @@ def print_summary(results):
         f"{rejection_accuracy:.2%}"
     )
 
-    print("\n" + "=" * 70)
+    print(
+        "\n" + "=" * 70
+    )
 
 
 # --------------------------------------------------
@@ -534,9 +813,18 @@ def print_summary(results):
 
 def main():
 
-    print("=" * 70)
-    print("NOVEL QA - ANSWER EVALUATION")
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
+
+    print(
+        "NOVEL QA - ANSWER EVALUATION"
+    )
+
+    print(
+        "=" * 70
+    )
+
 
     # --------------------------------------------------
     # Load evaluation dataset
@@ -548,6 +836,7 @@ def main():
         f"\nEvaluation questions: "
         f"{len(questions)}"
     )
+
 
     # --------------------------------------------------
     # Connect to ChromaDB
@@ -565,26 +854,40 @@ def main():
         f"{collection.count()}"
     )
 
+
     # --------------------------------------------------
     # Run evaluation
     # --------------------------------------------------
 
     results = []
 
-    for question_data in questions:
+    for index, question_data in enumerate(
+        questions,
+        start=1
+    ):
+
+        print(
+            f"\n\nRunning question "
+            f"{index}/{len(questions)}"
+        )
 
         result = evaluate_question(
             collection,
             question_data
         )
 
-        results.append(result)
+        results.append(
+            result
+        )
+
 
     # --------------------------------------------------
     # Print summary
     # --------------------------------------------------
 
-    print_summary(results)
+    print_summary(
+        results
+    )
 
 
 # --------------------------------------------------
@@ -592,4 +895,5 @@ def main():
 # --------------------------------------------------
 
 if __name__ == "__main__":
+
     main()
